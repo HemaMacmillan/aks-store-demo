@@ -60,7 +60,13 @@ jobs:
         id: provision_deploy
         continue-on-error: true
         run: |
-          azd env new ${{ vars.AZURE_ENV_NAME }}
+          ENV_NAME="test-e2e"
+
+          echo "Using environment: $ENV_NAME"
+
+          # Create env non-interactively
+          azd env new "$ENV_NAME" --no-prompt
+
           azd env set DEPLOY_AZURE_CONTAINER_REGISTRY true
           azd env set DEPLOY_AZURE_OPENAI true
           azd env set AZURE_OPENAI_LOCATION ${{ vars.AZURE_LOCATION }}
@@ -69,9 +75,10 @@ jobs:
           azd env set AZURE_COSMOSDB_ACCOUNT_KIND MongoDB
           azd env set DEPLOY_OBSERVABILITY_TOOLS true
           azd env set SOURCE_REGISTRY "ghcr.io/${{ github.repository_owner }}"
+
+          # Deploy fully non-interactive
           azd up --no-prompt
         env:
-          AZURE_ENV_NAME: ${{ vars.AZURE_ENV_NAME }}
           AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
           AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
