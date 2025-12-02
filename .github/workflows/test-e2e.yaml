@@ -13,6 +13,7 @@ permissions:
 jobs:
   test-e2e:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
@@ -48,20 +49,31 @@ jobs:
       - name: Set helm chart location
         run: sed -i 's/azure-samples.github.io/${{ github.repository_owner }}.github.io/' azure.yaml
 
+      # --------------------------------------------------
+      # FIXED STEP — NO PROMPTS, NO HANGS
+      # --------------------------------------------------
       - name: Provision and deploy
         run: |
-          azd env new ${{ vars.AZURE_ENV_NAME }}
+          ENV_NAME="test-e2e"
+
+          echo "Using environment: $ENV_NAME"
+          
+          # Create env non-interactively
+          azd env new "$ENV_NAME" --no-prompt
+
           azd env set SOURCE_REGISTRY "ghcr.io/${{ github.repository_owner }}"
+
+          # Deploy without prompting ever
           azd up --no-prompt
         env:
-          AZURE_ENV_NAME: ${{ vars.AZURE_ENV_NAME }}
-          AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
           AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
 
       - name: Get Store IPs
         id: kubectl_get_service
         run: |
           eval $(azd env get-values)
+
           storeAdminIp=$(kubectl get service store-admin -n $AZURE_AKS_NAMESPACE -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
           while [ -z "$storeAdminIp" ]; do
             sleep 60
@@ -69,6 +81,7 @@ jobs:
           done
           echo "STORE_ADMIN_IP=${storeAdminIp}"
           echo "STORE_ADMIN_IP=${storeAdminIp}" >> "$GITHUB_OUTPUT"
+
           storeFrontIp=$(kubectl get service store-front -n $AZURE_AKS_NAMESPACE -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
           while [ -z "$storeFrontIp" ]; do
             sleep 60
@@ -91,9 +104,10 @@ jobs:
           CI: true
 
       - name: Destroy environment
-        run: azd down --force --purge
+        run: |
+          ENV_NAME="test-e2e"
+          azd down --force --purge
         if: always()
         env:
-          AZURE_ENV_NAME: ${{ vars.AZURE_ENV_NAME }}
           AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
           AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
