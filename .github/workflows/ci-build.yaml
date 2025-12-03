@@ -11,30 +11,38 @@ permissions:
   contents: read
 
 jobs:
-  detect-and-build:
+  detect-build-upload:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout repository
+
+      # 1. Checkout full history (needed for diff)
       - name: Checkout
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0   # ensure HEAD~1 exists
+          fetch-depth: 0
 
-      # 2. Detect changed folders under src/*
+      # 2. Detect changed services under src/*
       - name: Detect changed services
         id: detect
         run: |
+          echo "Detecting folder changes…"
+          CHANGED=$(git diff --name-only HEAD~1 HEAD | grep '^src/' | cut -d'/' -f2 | sort | uniq || true)
+          
+          echo "Changed services:"
+          echo "$CHANGED"
+
+          # expose as output (multiline)
           echo "CHANGED_SERVICES<<EOF" >> $GITHUB_OUTPUT
-          git diff --name-only HEAD~1 HEAD | grep '^src/' | cut -d'/' -f2 | sort | uniq >> $GITHUB_OUTPUT || true
+          echo "$CHANGED" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      # 3. Exit early if nothing changed
+      # 3. Skip if no change
       - name: Stop if nothing changed
         if: ${{ steps.detect.outputs.CHANGED_SERVICES == '' }}
         run: echo "No services changed. Skip build." && exit 0
 
-      # 4. Azure Login (OIDC)
+      # 4. Login to Azure using OIDC
       - name: Azure Login
         uses: azure/login@v1
         with:
@@ -46,49 +54,30 @@ jobs:
       - name: ACR Login
         run: az acr login --name acrweek3
 
-      # 6. Build + push each changed service (kebab-case folder names)
+      # 6. Build & Push images
       - name: Build & Push changed services
+        id: push
         run: |
-          for folder in ${{ steps.detect.outputs.CHANGED_SERVICES }}; do
-            echo "Building image for $folder..."
-            docker build \
-              -t acrweek3.azurecr.io/$folder:dev-${{ github.sha }} \
-              ./src/$folder
+          echo "Building & pushing…"
 
-            echo "Pushing image for $folder..."
-            docker push acrweek3.azurecr.io/$folder:dev-${{ github.sha }}
-          done
+          mkdir -p artifacts   # temp folder for metadata
 
-      # 7. Create deployment artifact (folder → helmKey mapping)
-      - name: Create deployment artifact
-        run: |
-          echo "Creating artifact..."
+          while IFS= read -r svc; do
+            echo "Processing: $svc"
 
-          # Mapping from folder name → Helm values.yaml key
-          declare -A map=(
-            ["ai-service"]="aiService"
-            ["makeline-service"]="makelineService"
-            ["order-service"]="orderService"
-            ["product-service"]="productService"
-            ["store-admin"]="storeAdmin"
-            ["store-front"]="storeFront"
-            ["virtual-customer"]="virtualCustomer"
-            ["virtual-worker"]="virtualWorker"
-          )
+            IMAGE="acrweek3.azurecr.io/$svc:dev-${{ github.sha }}"
 
-          # convert space-separated list to newline list
-          echo "${{ steps.detect.outputs.CHANGED_SERVICES }}" | tr ' ' '\n' > changed.txt
+            docker build -t $IMAGE ./src/$svc
+            docker push $IMAGE
 
-          # create artifact file
-          rm -f changed-services.txt
-          while read folder; do
-            svc=${map[$folder]}
-            echo "$svc=dev-${{ github.sha }}" >> changed-services.txt
-          done < changed.txt
+            # Save artifact so CD knows what changed
+            echo "$svc=$IMAGE" >> artifacts/images.txt
 
-      # 8. Upload artifact for CD to consume
-      - name: Upload artifact
+          done <<< "${{ steps.detect.outputs.CHANGED_SERVICES }}"
+
+      # 7. Upload the artifact for CD workflow
+      - name: Upload Changed Image List
         uses: actions/upload-artifact@v4
         with:
-          name: changed-services
-          path: changed-services.txt
+          name: changed-images
+          path: artifacts/images.txt
