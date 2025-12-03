@@ -11,73 +11,63 @@ permissions:
   contents: read
 
 jobs:
-  detect-build-upload:
+  detect-and-build:
     runs-on: ubuntu-latest
 
     steps:
-
-      # 1. Checkout full history (needed for diff)
       - name: Checkout
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
-      # 2. Detect changed services under src/*
+      # Detect changed services under src/*
       - name: Detect changed services
         id: detect
         run: |
-          echo "Detecting folder changes…"
-          CHANGED=$(git diff --name-only HEAD~1 HEAD | grep '^src/' | cut -d'/' -f2 | sort | uniq || true)
+          CHANGED=$(git diff --name-only HEAD~1 HEAD | grep '^src/' | cut -d'/' -f2 | sort -u || true)
           
-          echo "Changed services:"
-          echo "$CHANGED"
+          # remove blank lines
+          CLEANED=$(echo "$CHANGED" | sed '/^\s*$/d')
 
-          # expose as output (multiline)
-          echo "CHANGED_SERVICES<<EOF" >> $GITHUB_OUTPUT
-          echo "$CHANGED" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          echo "changed=$CLEANED" >> $GITHUB_OUTPUT
 
-      # 3. Skip if no change
       - name: Stop if nothing changed
-        if: ${{ steps.detect.outputs.CHANGED_SERVICES == '' }}
-        run: echo "No services changed. Skip build." && exit 0
+        if: ${{ steps.detect.outputs.changed == '' }}
+        run: echo "No services changed. Skipping build."
 
-      # 4. Login to Azure using OIDC
+      # Only runs if something changed
       - name: Azure Login
+        if: ${{ steps.detect.outputs.changed != '' }}
         uses: azure/login@v1
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      # 5. Login to ACR
       - name: ACR Login
+        if: ${{ steps.detect.outputs.changed != '' }}
         run: az acr login --name acrweek3
 
-      # 6. Build & Push images
       - name: Build & Push changed services
-        id: push
+        if: ${{ steps.detect.outputs.changed != '' }}
         run: |
-          echo "Building & pushing…"
+          for svc in ${{ steps.detect.outputs.changed }}; do
+            echo "Building $svc"
+            docker build -t acrweek3.azurecr.io/$svc:dev-${{ github.sha }} ./src/$svc
 
-          mkdir -p artifacts   # temp folder for metadata
+            echo "Pushing $svc"
+            docker push acrweek3.azurecr.io/$svc:dev-${{ github.sha }}
+          done
 
-          while IFS= read -r svc; do
-            echo "Processing: $svc"
+      # Store list of changed services as artifact for CD
+      - name: Create artifact
+        if: ${{ steps.detect.outputs.changed != '' }}
+        run: |
+          echo "${{ steps.detect.outputs.changed }}" > changed_services.txt
 
-            IMAGE="acrweek3.azurecr.io/$svc:dev-${{ github.sha }}"
-
-            docker build -t $IMAGE ./src/$svc
-            docker push $IMAGE
-
-            # Save artifact so CD knows what changed
-            echo "$svc=$IMAGE" >> artifacts/images.txt
-
-          done <<< "${{ steps.detect.outputs.CHANGED_SERVICES }}"
-
-      # 7. Upload the artifact for CD workflow
-      - name: Upload Changed Image List
-        uses: actions/upload-artifact@v4
+      - name: Upload artifact
+        if: ${{ steps.detect.outputs.changed != '' }}
+        uses: actions/upload-artifact@v3
         with:
-          name: changed-images
-          path: artifacts/images.txt
+          name: changed-services
+          path: changed_services.txt
