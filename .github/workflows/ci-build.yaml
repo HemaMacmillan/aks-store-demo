@@ -67,7 +67,7 @@ jobs:
 
       - name: Upload artifact
         if: ${{ steps.detect.outputs.changed != '' }}
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: changed-services
           path: changed_services.txt
