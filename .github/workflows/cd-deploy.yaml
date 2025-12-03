@@ -1,0 +1,63 @@
+name: cd-deploy
+
+on:
+  workflow_dispatch:   # Manual deploy only
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  NAMESPACE: ${{ vars.AZURE_ENV_NAME }}
+  ACR_NAME: acrweek3.azurecr.io
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Download changed-services artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: changed-services
+          path: ./artifact
+
+      - name: Show artifact contents
+        run: cat ./artifact/changed-services.txt
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v1
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: AKS Get Credentials
+        run: az aks get-credentials --resource-group rg-aks-w3 --name aks-w3 --overwrite-existing
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+
+      - name: Deploy changed services with Helm
+        run: |
+          echo "Deploying services into namespace: $NAMESPACE"
+
+          while IFS= read -r line
+          do
+            svc=$(echo "$line" | cut -d= -f1)
+            tag=$(echo "$line" | cut -d= -f2)
+
+            echo "Deploying $svc with tag $tag ..."
+
+            # Convert service name from productService → product-service
+            svcFolder=$(echo "$svc" | sed -e 's/\([A-Z]\)/-\1/g' | tr '[:upper:]' '[:lower:]')
+
+            helm upgrade aks-store-demo ./charts/aks-store-demo \
+              --namespace $NAMESPACE \
+              --set $svc.image.repository=$ACR_NAME/$svcFolder \
+              --set $svc.image.tag=$tag
+
+          done < ./artifact/changed-services.txt
