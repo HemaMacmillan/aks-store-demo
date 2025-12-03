@@ -1,4 +1,4 @@
-# Use the official Python image as the base image
+# Use the official Python image as the base images
 FROM python:3.12.7-alpine
 
 # Set the working directory to /app
