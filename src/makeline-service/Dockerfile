@@ -1,4 +1,4 @@
-# Use an official Golang runtime as a parent image
+# Use an official Golang runtime as a parent images
 FROM golang:1.23-alpine AS builder
 
 # Set the working directory to /app
