@@ -18,6 +18,8 @@ jobs:
       # 1. Checkout code
       - name: Checkout
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
       # 2. Detect changed folders under src/*
       - name: Detect changed services
