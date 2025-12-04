@@ -1,7 +1,7 @@
 name: cd-deploy
 
 on:
-  workflow_dispatch:   # Manual deploy only
+  workflow_dispatch:    # manual deploy only
 
 permissions:
   id-token: write
@@ -10,6 +10,8 @@ permissions:
 env:
   NAMESPACE: ${{ vars.AZURE_ENV_NAME }}
   ACR_NAME: acrweek3.azurecr.io
+  SERVICE_NAME: ${{ vars.SERVICE_NAME }}     # you create this in GitHub → Variables
+  IMAGE_TAG: ${{ vars.IMAGE_TAG }}           # you create this in GitHub → Variables
 
 jobs:
   deploy:
@@ -18,15 +20,6 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v3
-
-      - name: Download changed-services artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: changed-services
-          path: ./artifact
-
-      - name: Show artifact contents
-        run: cat ./artifact/changed-services.txt
 
       - name: Azure Login (OIDC)
         uses: azure/login@v1
@@ -41,23 +34,16 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@v3
 
-      - name: Deploy changed services with Helm
+      - name: Deploy single service using ENV vars
         run: |
-          echo "Deploying services into namespace: $NAMESPACE"
+          echo "Service: $SERVICE_NAME"
+          echo "Tag: $IMAGE_TAG"
+          echo "Namespace: $NAMESPACE"
 
-          while IFS= read -r line
-          do
-            svc=$(echo "$line" | cut -d= -f1)
-            tag=$(echo "$line" | cut -d= -f2)
+          # Convert productService → product-service
+          svcFolder=$(echo "$SERVICE_NAME" | sed -e 's/\([A-Z]\)/-\1/g' | tr '[:upper:]' '[:lower:]')
 
-            echo "Deploying $svc with tag $tag ..."
-
-            # Convert service name from productService → product-service
-            svcFolder=$(echo "$svc" | sed -e 's/\([A-Z]\)/-\1/g' | tr '[:upper:]' '[:lower:]')
-
-            helm upgrade aks-store-demo ./charts/aks-store-demo \
-              --namespace $NAMESPACE \
-              --set $svc.image.repository=$ACR_NAME/$svcFolder \
-              --set $svc.image.tag=$tag
-
-          done < ./artifact/changed-services.txt
+          helm upgrade aks-store-demo ./charts/aks-store-demo \
+            --namespace $NAMESPACE \
+            --set $SERVICE_NAME.image.repository=$ACR_NAME/$svcFolder \
+            --set $SERVICE_NAME.image.tag=$IMAGE_TAG
