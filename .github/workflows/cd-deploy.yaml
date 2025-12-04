@@ -44,6 +44,7 @@ jobs:
           svcFolder=$(echo "$SERVICE_NAME" | sed -e 's/\([A-Z]\)/-\1/g' | tr '[:upper:]' '[:lower:]')
 
           helm upgrade aks-store-demo ./charts/aks-store-demo \
+            --install \
             --namespace $NAMESPACE \
             --set $SERVICE_NAME.image.repository=$ACR_NAME/$svcFolder \
             --set $SERVICE_NAME.image.tag=$IMAGE_TAG
