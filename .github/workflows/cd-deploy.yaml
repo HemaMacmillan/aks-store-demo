@@ -46,5 +46,6 @@ jobs:
           helm upgrade aks-store-demo ./charts/aks-store-demo \
             --install \
             --namespace $NAMESPACE \
+            --create-namespace \
             --set $SERVICE_NAME.image.repository=$ACR_NAME/$svcFolder \
             --set $SERVICE_NAME.image.tag=$IMAGE_TAG
